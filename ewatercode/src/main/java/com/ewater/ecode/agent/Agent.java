@@ -2,7 +2,11 @@ package com.ewater.ecode.agent;
 
 import com.ewater.ecode.llm.GLMClient;
 import com.ewater.ecode.tool.ToolRegistry;
+import com.ewater.ecode.llm.GLMClient.Message;
+import com.ewater.ecode.llm.GLMClient.ChatResponse;
+import com.ewater.ecode.llm.GLMClient.ToolCall;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,9 +39,52 @@ public class Agent {
     public Agent(GLMClient llmClient, ToolRegistry toolRegistry) {
         this.llmClient = llmClient;
         this.toolRegistry = toolRegistry;
-        conversationHistory = new ArrayList<GLMClient.Message>();
+        conversationHistory = new ArrayList<Message>();
 
         //系统提示
-        conversationHistory.add(GLMClient.Message.system(SYSTEM_PROMPT))
+        conversationHistory.add(Message.system(SYSTEM_PROMPT));
+        }
+    public String run(String userInput) throws IOException {
+        //注入历史记录
+        conversationHistory.add(Message.user(userInput));
+
+        int iteration = 0;
+        while(iteration < MAX_ITERATIONS){
+            iteration++;
+
+            //调用llm
+            ChatResponse response = llmClient.chat(
+                    conversationHistory,
+                    toolRegistry.getToolDefinitions()
+            );
+
+            //如果有工具调用
+            if(response.hasToolCalls()){
+                //记录助手消息
+                conversationHistory.add(
+                        Message.assistant(response.content(),response.toolCalls())
+                );
+
+                //执行工具调用
+                for(ToolCall toolCall:response.toolCalls()){
+                    String result = toolRegistry.executeTool(toolCall.function().name(),toolCall.function().arguments());
+
+                    //记录工具结果
+                    conversationHistory.add(Message.tool(toolCall.id(),result));
+                }
+                //继续循环，让llm由结果思考
+                    continue;
+            }else{
+                //没有工具调用则任务完成
+                conversationHistory.add(Message.assistant(response.content()));
+                return response.content();
+            }
+        }
+        return  "达到最大迭代次数";
     }
+    public void clearHistory() {
+        conversationHistory.clear();
+        conversationHistory.add(Message.system(SYSTEM_PROMPT));
+    }
+
 }

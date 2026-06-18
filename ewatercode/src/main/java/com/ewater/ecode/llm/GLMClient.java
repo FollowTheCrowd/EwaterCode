@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import okhttp3.*;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -17,7 +18,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class GLMClient {
     private static final String API_URI =
-            "https://open.bigmodel.cn/api/paas/v4";
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions";
     private static final String MODEL = "glm-5.1";
     private final String apiKey;
     private final OkHttpClient client;
@@ -45,11 +46,14 @@ public class GLMClient {
         public static Message user(String content){
             return new Message("user",content,null,null);
         }
-        public static Message tool(String content){
-            return new Message("tool",content,null,null);
+        public static Message tool(String content,String toolCallId){
+            return new Message("tool",content,null,toolCallId);
         }
         public static Message assistant(String content){
             return new Message("assistant",content,null,null);
+        }
+        public static Message assistant(String content,List<ToolCall> toolCalls){
+            return new Message("assistant",content,toolCalls,null);
         }
 
     }
@@ -147,6 +151,8 @@ public class GLMClient {
                  }
 
              }
+             //test
+        System.out.println("请求体: " + requestBody.toString());
 
              //发送Http请求
         RequestBody body = RequestBody.create(
@@ -161,8 +167,36 @@ public class GLMClient {
                 .build();
 
         //解析响应
-        try {
-            Response response = httpClient
+        try(Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                String err = response.body() != null ? response.body().string() : "";
+                throw new IOException("API 请求失败: " + response.code() + " " + err);
+            }
+            String responseBody = response.body().string();
+            JsonNode root = mapper.readTree(responseBody);
+
+            //取choice的msg
+            JsonNode msg = root.path("choices").get(0).path("message");
+            //取得content
+            String content = msg.path("content").asText("");
+            //取reasoning
+            String reasoning = msg.path("reasoning").asText("");
+
+            //工具调用
+            List<ToolCall> toolCalls = new ArrayList<>();
+            JsonNode tcArray = msg.path("tool_calls");
+            for(JsonNode tc : tcArray) {
+                String id = tc.path("id").asText();
+                String name = tc.path("function").path("name").asText();
+                String arguments = tc.path("function").path("arguments").asText();
+                toolCalls.add(new ToolCall(id,new ToolCall.Function(name,arguments)));
+            }
+            // token 用量
+            JsonNode usage = root.path("usage");
+            int in = usage.path("prompt_tokens").asInt(0);
+            int out = usage.path("completion_tokens").asInt(0);
+
+            return new ChatResponse("assistant", content, reasoning, toolCalls, in, out);
 
 
         }
