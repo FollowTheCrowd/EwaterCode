@@ -70,7 +70,7 @@ public class Agent {
                     String result = toolRegistry.executeTool(toolCall.function().name(),toolCall.function().arguments());
 
                     //记录工具结果
-                    conversationHistory.add(Message.tool(toolCall.id(),result));
+                    conversationHistory.add(Message.tool(result,toolCall.id()));
                 }
                 //继续循环，让llm由结果思考
                     continue;
