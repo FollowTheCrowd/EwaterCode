@@ -107,6 +107,118 @@ public class ExecutionPlan {
         return true;
     }
 
+
+    /**
+     * 可视化计划
+     */
+    public String visualize() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("╔══════════════════════════════════════════════════════════╗\n");
+        sb.append(String.format("║  执行计划: %-46s║%n", goal.length() > 46 ? goal.substring(0, 43) + "..." : goal));
+        sb.append("╠══════════════════════════════════════════════════════════╣\n");
+
+        List<String> order = getExecutionOrder();
+        for (int i = 0; i < order.size(); i++) {
+            String taskId = order.get(i);
+            Task task = tasks.get(taskId);
+            String statusIcon = getStatusIcon(task.getStatus());
+            String deps = task.getDependencies().isEmpty() ? "无" :
+                    String.join(",", task.getDependencies());
+
+            sb.append(String.format("║  %d. %s %-20s ", i + 1, statusIcon, task.getId()));
+            sb.append(String.format("[%-10s] 依赖: %-15s║%n",
+                    task.getType(), deps));
+            String desc = task.getDescription().length() > 50
+                    ? task.getDescription().substring(0, 47) + "..."
+                    : task.getDescription();
+            sb.append(String.format("║     %-53s║%n", desc));
+        }
+
+        sb.append("╚══════════════════════════════════════════════════════════╝\n");
+        sb.append(String.format("   进度: %.0f%% | 状态: %s%n",
+                getProgress() * 100, status));
+
+        return sb.toString();
+    }
+
+    private String getStatusIcon(Task.TaskStatus status) {
+        return switch (status) {
+            case PENDING -> "⏳";
+            case RUNNING -> "▶️";
+            case COMPLETED -> "✅";
+            case FAILED -> "❌";
+            case SKIPPED -> "⏭️";
+        };
+    }
+
+    /**
+     * 获取执行进度
+     */
+    public double getProgress() {
+        if (tasks.isEmpty()) return 1.0;
+        long completed = tasks.values().stream()
+                .filter(t -> t.getStatus() == Task.TaskStatus.COMPLETED)
+                .count();
+        return (double) completed / tasks.size();
+    }
+
+    /**
+     * 是否全部完成
+     */
+    public boolean isAllCompleted() {
+        return tasks.values().stream()
+                .allMatch(t -> t.getStatus() == Task.TaskStatus.COMPLETED);
+    }
+
+    /**
+     * 是否有失败任务
+     */
+    public boolean hasFailed() {
+        return tasks.values().stream()
+                .anyMatch(t -> t.getStatus() == Task.TaskStatus.FAILED);
+    }
+
+    /**
+     * 标记开始执行
+     */
+    public void markStarted() {
+        this.status = PlanStatus.RUNNING;
+        this.startTime = System.currentTimeMillis();
+    }
+
+    /**
+     * 标记完成
+     */
+    public void markCompleted() {
+        this.status = PlanStatus.COMPLETED;
+        this.endTime = System.currentTimeMillis();
+    }
+
+    /**
+     * 标记失败
+     */
+    public void markFailed() {
+        this.status = PlanStatus.FAILED;
+        this.endTime = System.currentTimeMillis();
+    }
+
+    @Override
+    public String toString() {
+        return String.format("ExecutionPlan[%s: %s] (%d tasks, %s)",
+                id, goal, tasks.size(), status);
+    }
+
+
+    /**
+     * 获取执行顺序
+     */
+    public List<String> getExecutionOrder() {
+        if (executionOrder.isEmpty()) {
+            computeExecutionOrder();
+        }
+        return new ArrayList<>(executionOrder);
+    }
+
     private boolean topologicalSort(Task task,Set<String> visited,Set<String> visiting){
         //看是否有环
         if(visiting.contains(task.getId())) return false;
@@ -119,7 +231,7 @@ public class ExecutionPlan {
         //开始遍历处理依赖
         for(String depID : task.getDependencies()){
             Task depTask = tasks.get(depID);
-            if(!visited.contains(depID)){
+            if(depTask != null){
                 if(!topologicalSort(depTask,visited,visiting)){
                     return false;
                 }
